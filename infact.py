@@ -1,4 +1,4 @@
-#!/usr/bin/env /usr/pkg/bin/ipython-3.8
+#!/usr/bin/env /usr/pkg/bin/python3.8
 
 # coding: utf-8
 import os
@@ -19,10 +19,13 @@ def add_to_mapping(DICT, KEY, VALUE ):
 		DICT[KEY] = [DICT[KEY], VALUE]
 
 def get_pairs(LINE):
-	dict_ = LINE.split('= ')[1]
-	dict_ = dict_.strip("{};")
-	pairs = dict_.split(',')
-	return pairs 
+	try:
+		dict_ = LINE.split('= ')[1]
+		dict_ = dict_.strip("{};")
+		pairs = dict_.split(',')
+		return pairs 
+	except:
+		None
 
 jobmap_cache = 'jobmap.pkl'
 if os.path.isfile(jobmap_cache):
@@ -45,7 +48,7 @@ print('Go!')
 for decade in range(0,100,10):
 	time.sleep(2)
 	print(decade)
-	response = requests.get(SEARCH_URL+str(decade), headers=headers )
+	response = requests.get( SEARCH_URL+str(decade), headers = headers)
 	soup = BeautifulSoup(response.text, 'html.parser')
 	for js in soup.find_all('script'):
 		if 'jobmap' in str(js.contents):
@@ -62,21 +65,14 @@ for decade in range(0,100,10):
 								kv_pair[0],
 								kv_pair[1].strip("'"))
 	df_tmp = pd.DataFrame(tmp_map)
-	jobmap_cache = 'jobmap.pkl'
-	if os.path.isfile(jobmap_cache):
-		with open(jobmap_cache,'rb') as f:
-			jobmap = pickle.load(f)
-	else:
+	if not os.path.isfile(jobmap_cache):
 		jobmap = pd.DataFrame(columns=df_tmp.columns)
-	
 	for i in range(0,len(df_tmp)):
 		if df_tmp.iloc[i,0] not in jobmap.jk.values:
 			print(True)
 			jobmap = jobmap.append(df_tmp.iloc[i,:])
 		else:
 			continue
-	with open(jobmap_cache,'wb') as f:
-		pickle.dump(jobmap,f)
 DESC_URL = 'https://www.indeed.com/viewjob?jk='
 for jk in jobmap['jk']:
 	filename = './jobs/'+jk
@@ -95,3 +91,7 @@ for jk in jobmap['jk']:
 			None
 		with open(filename,'w') as f:
 			f.write(text)
+
+jobmap['mtime'] = list(map(lambda x: os.path.getmtime(f'./jobs/{x}'),jobmap['jk']))
+with open(jobmap_cache,'wb') as f:
+	pickle.dump(jobmap,f)
