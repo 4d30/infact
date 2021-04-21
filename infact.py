@@ -43,7 +43,7 @@ SEARCH_URL= 'https://www.indeed.com/jobs?q=data+scientist&l=new+york,+ny&sort=da
 script = ''
 print('Go!')
 for decade in range(0,100,10):
-	time.sleep(10)
+	time.sleep(2)
 	print(decade)
 	response = requests.get(SEARCH_URL+str(decade), headers=headers )
 	soup = BeautifulSoup(response.text, 'html.parser')
