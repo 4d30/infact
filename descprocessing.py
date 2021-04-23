@@ -93,7 +93,7 @@ def divide_work(FULL_LIST_OF_JK):
 			work_schedule[i,1] = len(FULL_LIST_OF_JK) - distance
 	return work_schedule
 
-def process_target(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER, PIPE):	
+def count_terms_process_target(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER, PIPE):	
 	counter_obj = count_terms_in_slice(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER)
 	PIPE.send(counter_obj)
 	PIPE.close()
@@ -101,24 +101,77 @@ def process_target(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER, PIPE):
 
 pipes = []
 processes = []
-counter = Counter()
+term_counter = Counter()
 start_time = time.time()
 if __name__ == '__main__':
 	for job in divide_work(jobmap['jk']):
 		workslice = jobmap['jk'][job[0]:job[0]+job[1]]
 		pipe_recv, pipe_send = mp.Pipe(False)
 		pipes.append(pipe_recv)
-		p = mp.Process(target=process_target, args=('./jobs/', workslice, Counter(), pipe_send))
+		p = mp.Process(target=count_terms_process_target, 
+						args=('./jobs/', 
+								workslice, 
+								Counter(), 
+								pipe_send))
 		processes.append(p)
 		p.start()
 	
 	for i in range(len(processes)):
-		counter.update(pipes[i].recv())
+		term_counter.update(pipes[i].recv())
 		pipes[i].close()
 		processes[i].join()
 print(f'Time elapsed: {time.time() - start_time:.2f} sec\n\n')	
-print(counter.most_common(10))
 
+def are_terms_in_doc(TERMS, FILENAME):
+	termsindoc = FreqDist()
+	with open (FILENAME, 'rb') as f:
+		sent = get_sentences(f)
+		lemmas = map(get_lemmas, sent)
+		termsindoc.update(get_terms(lemmas))
+	return list(map(lambda x: x in termsindoc.keys(), TERMS))
+
+def count_doc_freq_in_slice(PATH, PARTIAL_LIST_OF_JK, TERMS, ARRAY):
+	pcount_array = ARRAY	
+	for jk in PARTIAL_LIST_OF_JK:
+		filename = PATH + jk
+		pcount_array = pcount_array + are_terms_in_doc(TERMS, filename)
+	return pcount_array 
+
+def count_doc_process_target(PATH, PARTIAL_LIST_OF_JK, TERMS, ARRAY, PIPE):
+	count_array = count_doc_freq_in_slice(PATH, PARTIAL_LIST_OF_JK, TERMS, ARRAY)
+	PIPE.send(count_array)
+	PIPE.close()
+	
+pipes = []
+processes = []
+doc_counter = np.zeros((len(term_counter.keys())), dtype = np.longlong)
+start_time = time.time()
+if __name__ == '__main__':
+	for job in divide_work(jobmap['jk']):
+		workslice = jobmap['jk'][job[0]:job[0]+job[1]]
+		pipe_recv, pipe_send = mp.Pipe(False)
+		pipes.append(pipe_recv)
+		p = mp.Process(target=count_doc_process_target,
+						args=('./jobs/', 
+							workslice, 
+							list(term_counter.keys()), 
+							np.zeros((len(term_counter.keys())), dtype = np.longlong),
+							pipe_send))
+		processes.append(p)
+		p.start()
+	
+	for i in range(len(processes)):
+		doc_counter = doc_counter + pipes[i].recv()
+		pipes[i].close()
+		processes[i].join()
+
+print(f'Time elapsed: {time.time() - start_time:.2f} sec\n\n')	
+
+df = pd.DataFrame.from_dict(term_counter, orient='index', dtype = int, columns = ['term_count'])
+df['doc_count'] = doc_counter
+print(df.sort_values(by='term_count', ascending=False)[0:50])
+#print(list(counter.keys()))
+#print(any(are_terms_in_doc(list(counter.keys()), './jobs/628c9ffff39f3b2a')))
 
 #term_counts = []
 #df= []
