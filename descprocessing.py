@@ -24,6 +24,7 @@ from nltk.util import ngrams
 # Corpus location
 filepath = './jobs/'
 
+# Open Cache
 jobmap_cache = './jobmap.pkl'
 with open(jobmap_cache,'rb') as f:
 	jobmap = pickle.load(f)
@@ -32,8 +33,6 @@ with open(jobmap_cache,'rb') as f:
 stop_words = set(stopwords.words("english"))
 wnl = WordNetLemmatizer()
 tokenizer = RegexpTokenizer(r'\w+')
-MAX_GRAMS = 4
-LIMIT=1e9
 n_docs = len(jobmap)
 
 def tag_nltk2wordnet(nltk_tag):
@@ -72,8 +71,6 @@ def get_terms(LEMMAS):
 
 def count_terms_in_slice(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER):
 	for index, jk in enumerate(PARTIAL_LIST_OF_JK):
-		if index > LIMIT:
-			break
 		with open(PATH + jk, 'rb') as f:
 			sentences = get_sentences(f)
 			lemmas = map(get_lemmas, sentences)
@@ -83,7 +80,7 @@ def count_terms_in_slice(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER):
 def divide_work(FULL_LIST_OF_JK):
 	n_cpus = mp.cpu_count()
 	job_length = np.floor(len(FULL_LIST_OF_JK)/n_cpus)
-	work_schedule = np.zeros((n_cpus,2), dtype = np.longlong)
+	work_schedule = np.zeros((n_cpus,2), dtype = np.uint64)
 	for i in range(0, n_cpus):
 		distance = i*job_length
 		work_schedule[i,0] = distance
@@ -98,11 +95,11 @@ def count_terms_process_target(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER, PIPE):
 	PIPE.send(counter_obj)
 	PIPE.close()
 
-
 pipes = []
 processes = []
 term_counter = Counter()
 start_time = time.time()
+# Identify and count terms
 if __name__ == '__main__':
 	for job in divide_work(jobmap['jk']):
 		workslice = jobmap['jk'][job[0]:job[0]+job[1]]
@@ -120,7 +117,7 @@ if __name__ == '__main__':
 		term_counter.update(pipes[i].recv())
 		pipes[i].close()
 		processes[i].join()
-print(f'Time elapsed: {time.time() - start_time:.2f} sec\n\n')	
+print(f'Term Loop:\tTime elapsed: {time.time() - start_time:.2f} sec\n')	
 
 def are_terms_in_doc(TERMS, FILENAME):
 	termsindoc = FreqDist()
@@ -144,8 +141,9 @@ def count_doc_process_target(PATH, PARTIAL_LIST_OF_JK, TERMS, ARRAY, PIPE):
 	
 pipes = []
 processes = []
-doc_counter = np.zeros((len(term_counter.keys())), dtype = np.longlong)
+doc_counter = np.zeros((len(term_counter.keys())), dtype = np.uint64)
 start_time = time.time()
+# Count number of docs which contain each term found earlier
 if __name__ == '__main__':
 	for job in divide_work(jobmap['jk']):
 		workslice = jobmap['jk'][job[0]:job[0]+job[1]]
@@ -165,88 +163,15 @@ if __name__ == '__main__':
 		pipes[i].close()
 		processes[i].join()
 
-print(f'Time elapsed: {time.time() - start_time:.2f} sec\n\n')	
-
+print(f'Doc Loop:\tTime elapsed: {time.time() - start_time:.2f} sec\n')	
 df = pd.DataFrame.from_dict(term_counter, orient='index', dtype = int, columns = ['term_count'])
 df['doc_count'] = doc_counter
-print(df.sort_values(by='term_count', ascending=False)[0:50])
-#print(list(counter.keys()))
-#print(any(are_terms_in_doc(list(counter.keys()), './jobs/628c9ffff39f3b2a')))
+df['tf_corpus'] = df['term_count']/sum(df['term_count'])
+df['idf'] = np.log(n_docs/df['doc_count'])
+df['tf-idf_corpus'] = df['tf_corpus']*df['idf']
 
-#term_counts = []
-#df= []
-#terms = Counter()
+df.index = list(map(lambda x: ' '.join(x), df.index))
+df.index.name = 'term'
 
-#for i in range(0,MAX_GRAMS):
-#	df.append(pd.DataFrame())
-#	term_counts.append(FreqDist())
-
-
-# Count the number of documents in which each term from above appears
-#for index, jk in enumerate(jobmap['jk']):
-#	if index > 10:
-#		break
-#	with open (filepath+jk, 'rb') as f:
-#		sentences = get_sentences(f)
-#		lemmas = map(get_lemmas, sentences)
-#		terms.update(get_terms(lemmas))
-#
-#print(terms.most_common(10))
-#
-# Count number of occurances for each term in all files
-#for i, filename in enumerate(os.listdir(filepath)):
-#	if i >= LIMIT: # Throttle for debugging, remove 
-#		break
-#	else:
-#		with open(filepath+filename, 'rb') as f:
-#			raw = f.read().decode('utf8')
-#			raw = raw.lower()
-#			sent = sent_tokenize(raw)
-#			for s in sent:
-#				words = tokenizer.tokenize(s)
-#				tagged = pos_tag(words)
-#				filtered_words = [t for t in tagged if not t[0] in stop_words]
-#				lemmatized_words = [wnl.lemmatize(w[0],pos=tag_nltk2wordnet(w[1])) for w in filtered_words]
-#				for k in range(0,MAX_GRAMS): 
-#					grams = ngrams(lemmatized_words, k + 1)
-#					term_counts[k].update(grams)
-#
-#for i in range(0,MAX_GRAMS):
-#	df[i] = pd.DataFrame.from_dict(term_counts[i],orient='index', dtype = int, columns=['term_count'])
-#	df[i]['doc_count'] = np.zeros(len(df[i]),dtype = int)
-#	df[i].index.name = 'term'
-#
-#for i, filename in enumerate(os.listdir(filepath)):
-#	if i >= LIMIT:
-#		break
-#	else:
-#		with open(filepath + filename, 'rb') as f:
-#			gramdist = []
-#			for j in range(0,MAX_GRAMS):
-#				gramdist.append(FreqDist())
-#			raw = f.read().decode('utf8')
-#			raw = raw.lower()
-#			sent = sent_tokenize(raw)
-#			for s in sent:
-#				words = tokenizer.tokenize(s)
-#				tagged = pos_tag(words)
-#				filtered_words = [t for t in tagged if not t[0] in stop_words]
-#				lemmatized_words = [wnl.lemmatize(w[0],pos=tag_nltk2wordnet(w[1])) for w in filtered_words]
-#				for k in range(0,MAX_GRAMS):
-#					gramdist[k].update(ngrams(lemmatized_words, k + 1))
-#			for j in range(0,MAX_GRAMS):
-#				df[j]['doc_count'] = df[j]['doc_count'] + list(map(lambda x: x in gramdist[j],list(df[j].index)))
-
-#for i in range(0,MAX_GRAMS):
-#	df[i]['tf'] = df[i]['term_count']/sum(df[i]['term_count']) # Calculate tf
-#	df[i]['idf'] = np.log(n_docs/df[i]['doc_count'])	#Calculate idf
-#	df[i]['tf-idf'] = df[i]['tf']*df[i]['idf']			#Calculate tf-idf
-#
-#df_concat = pd.DataFrame()
-#for i in range(0,MAX_GRAMS):
-#	df_concat = df_concat.append(df[i])	
-#df_concat.index = list(map(lambda x: ' '.join(x),df_concat.index)) # Prettify terms
-#df_concat.index.name = 'term'
-#
-#print(df_concat.sort_values(by='tf-idf', ascending = False)[0:50])
-#df_concat.sort_values(by='tf-idf', ascending = False).to_csv('./grams.csv')
+print(df.sort_values(by='tf-idf_corpus', ascending=False)[0:50])
+df.sort_values(by='tf-idf_corpus', ascending=False).to_csv('./grams.csv')
