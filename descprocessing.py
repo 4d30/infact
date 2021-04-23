@@ -1,6 +1,6 @@
 #!/usr/bin/env /usr/pkg/bin/python3.8
 
-# This script calculates tf-idf for all of the terms in all of the 
+# This script calculates tf & idf for all of the terms in all of the 
 # documents in the directory specified. The process occurs over two
 # loops. The first discovers and count all of the terms. The second
 # counts the number of documents in which each term appears. 
