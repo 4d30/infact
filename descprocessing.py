@@ -178,8 +178,7 @@ df['tf_corpus'] = 1 + np.log(df['term_count']) #/sum(df['term_count'])
 df['idf'] = np.log(n_docs/df['doc_count'])
 df['tf-idf_corpus'] = df['tf_corpus']*df['idf']
 
-# Select only terms which appear in more than one document
-print(len(work_target)/4)
+# Select only terms which appear in more than 1/8 of documents
 df = df[df['doc_count'] > len(work_target)/8 ]
 
 df.index = list(map(lambda x: ' '.join(x), df.index))
