@@ -1,6 +1,8 @@
 #!/usr/bin/env /usr/pkg/bin/python3.8
 
-# ADD DESCRIPTION
+# This script takes a jobkey and specified number of 
+# grams and then calculates the tf-df for all constituent 
+# terms
 
 import os
 import sys
