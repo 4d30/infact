@@ -53,7 +53,6 @@ def get_sentences(FILE):
 	sent = sent_tokenize(raw)
 	return sent
 
-
 def get_lemmas(SENT):
 	words = tokenizer.tokenize(SENT)
 	tagged = pos_tag(words)
@@ -99,10 +98,19 @@ pipes = []
 processes = []
 term_counter = Counter()
 start_time = time.time()
+
+# Let's only target the most recent post from each employer
+work_target = []
+for each in jobmap.cmpid.unique():
+	employer_listing = jobmap[jobmap.cmpid == each]
+	most_recent = employer_listing[employer_listing['mtime'] == employer_listing['mtime'].max()]['jk']
+	for val in most_recent:
+		work_target.append(val)
+
 # Identify and count terms
 if __name__ == '__main__':
-	for job in divide_work(jobmap['jk']):
-		workslice = jobmap['jk'][job[0]:job[0]+job[1]]
+	for job in divide_work(work_target):
+		workslice = work_target[job[0]:job[0]+job[1]]
 		pipe_recv, pipe_send = mp.Pipe(False)
 		pipes.append(pipe_recv)
 		p = mp.Process(target=count_terms_process_target, 
@@ -145,8 +153,8 @@ doc_counter = np.zeros((len(term_counter.keys())), dtype = np.uint64)
 start_time = time.time()
 # Count number of docs which contain each term found earlier
 if __name__ == '__main__':
-	for job in divide_work(jobmap['jk']):
-		workslice = jobmap['jk'][job[0]:job[0]+job[1]]
+	for job in divide_work(work_target):
+		workslice = work_target[job[0]:job[0]+job[1]]
 		pipe_recv, pipe_send = mp.Pipe(False)
 		pipes.append(pipe_recv)
 		p = mp.Process(target=count_doc_process_target,
@@ -166,9 +174,13 @@ if __name__ == '__main__':
 print(f'Doc Loop:\tTime elapsed: {time.time() - start_time:.2f} sec\n')	
 df = pd.DataFrame.from_dict(term_counter, orient='index', dtype = int, columns = ['term_count'])
 df['doc_count'] = doc_counter
-df['tf_corpus'] = df['term_count']/sum(df['term_count'])
+df['tf_corpus'] = 1 + np.log(df['term_count']) #/sum(df['term_count'])
 df['idf'] = np.log(n_docs/df['doc_count'])
 df['tf-idf_corpus'] = df['tf_corpus']*df['idf']
+
+# Select only terms which appear in more than one document
+print(len(work_target)/4)
+df = df[df['doc_count'] > len(work_target)/8 ]
 
 df.index = list(map(lambda x: ' '.join(x), df.index))
 df.index.name = 'term'
