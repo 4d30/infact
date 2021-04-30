@@ -12,6 +12,7 @@ import pickle
 
 import pandas as pd
 import numpy as np
+import itertools
 
 from nltk import pos_tag
 from nltk.tokenize import word_tokenize, sent_tokenize, RegexpTokenizer
@@ -172,9 +173,19 @@ if __name__ == '__main__':
 		processes[i].join()
 
 print(f'Doc Loop:\tTime elapsed: {time.time() - start_time:.2f} sec\n')	
+
+#[print(v) for i, v in enumerate(term_counter.items()) if i < 5]
+
+def logtf(LISTLIKE):
+	if LISTLIKE > 0:
+		return 1 + np.log(LISTLIKE)
+	else:
+		return 0
+
+
 df = pd.DataFrame.from_dict(term_counter, orient='index', dtype = int, columns = ['term_count'])
 df['doc_count'] = doc_counter
-df['tf_corpus'] = 1 + np.log(df['term_count']) #/sum(df['term_count'])
+df['tf_corpus'] = list(map(logtf,df['term_count'])) #1 + np.log(df['term_count']) #/sum(df['term_count'])
 df['idf'] = np.log(n_docs/df['doc_count'])
 df['tf-idf_corpus'] = df['tf_corpus']*df['idf']
 
