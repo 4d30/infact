@@ -48,12 +48,13 @@ SEARCH_URL= 'https://www.indeed.com/jobs?q=data+scientist&l=new+york,+ny&sort=da
 script = ''
 print('Go!')
 
-def extract_job_dict(LINE):
+def fix_crappy_json(LINE):
 	line = LINE
 	tmp = pd.DataFrame()
 	if line.startswith('jobmap'):
 		line = re.sub('^.*= ','',line)
-		line = re.sub(r'(\w+):','"\\1":',line)
+		line = re.sub(r',(\w+):',',"\\1":',line)
+		line = re.sub(r'{(\w+):','{"\\1":',line)
 		line = re.sub(r"'",'"',line)
 		line = re.sub(';$','',line)
 		try:
@@ -73,36 +74,36 @@ for decade in range(0,100,10):
 			script = js.contents[0]
 	df_tmp = pd.DataFrame()
 	for line in script.splitlines():
-		df_tmp = df_tmp.append(extract_job_dict(line))
-	df_tmp.set_index('jk',inplace=True)
+		df_tmp = df_tmp.append(fix_crappy_json(line))
+	df_tmp.set_index('num',inplace=True)
 	if not os.path.isfile(jobmap_cache):
 		jobmap = pd.DataFrame(columns=df_tmp.columns)
-	for jk in df_tmp.index.values:
+	for index, jk in enumerate(df_tmp.jk.values):
 		if jk not in jobmap.jk.values:
-			print(True)
-			jobmap.append(df_tmp.loc[jk])
+			print(True, jk)
+			jobmap = jobmap.append(df_tmp.iloc[index])
 		else:
 			continue
 
-#DESC_URL = 'https://www.indeed.com/viewjob?jk='
-#for jk in jobmap['jk']:
-#	filename = './jobs/'+jk
-#	if os.path.isfile(filename):
-#		continue
-#	else:
-#		print(jk)
-#		URL = DESC_URL + jk
-#		response = requests.get(URL, headers = headers )
-#		soup = BeautifulSoup(response.text,'html.parser')
-#		text = soup.get_text()
-#		try:
-#			text = text.split('Full Job Description')[1]
-#			text = text.split('Report jobApply')[0]
-#		except:
-#			None
-#		with open(filename,'w') as f:
-#			f.write(text)
-#
-#jobmap['mtime'] = list(map(lambda x: os.path.getmtime(f'./jobs/{x}'),jobmap['jk']))
-#with open(jobmap_cache,'wb') as f:
-#	pickle.dump(jobmap,f)
+DESC_URL = 'https://www.indeed.com/viewjob?jk='
+for jk in jobmap['jk']:
+	filename = './jobs/'+jk
+	if os.path.isfile(filename):
+		continue
+	else:
+		print(jk)
+		URL = DESC_URL + jk
+		response = requests.get(URL, headers = headers )
+		soup = BeautifulSoup(response.text,'html.parser')
+		text = soup.get_text()
+		try:
+			text = text.split('Full Job Description')[1]
+			text = text.split('Report jobApply')[0]
+		except:
+			None
+		with open(filename,'w') as f:
+			f.write(text)
+
+jobmap['mtime'] = list(map(lambda x: os.path.getmtime(f'./jobs/{x}'),jobmap['jk']))
+with open(jobmap_cache,'wb') as f:
+	pickle.dump(jobmap,f)
