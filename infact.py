@@ -3,6 +3,7 @@
 #coding: ascii
 import os
 import time
+import datetime
 import requests
 import brotli
 from bs4 import BeautifulSoup
@@ -18,11 +19,6 @@ pd.set_option('display.max_columns', None)
 
 db_connection = "dbname=infact user=pgsql"
 
-#jobmap_cache = 'jobmap.pkl'
-#if os.path.isfile(jobmap_cache):
-#	print(f'Found {jobmap_cache}')
-#	with open(jobmap_cache,'rb') as f:
-#		jobmap = pickle.load(f)
 def fix_crappy_json(LINE):
 	line = LINE
 	tmp = pd.DataFrame()
@@ -56,9 +52,9 @@ with psycopg2.connect(db_connection) as conn:
 	conn.set_client_encoding('UTF8')
 	cur = conn.cursor()
 	jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
-	for decade in range(0,100,10):
+	for decade in range(0,20,10):
 		time.sleep(2)
-		print(decade)
+		print(decade, "################################################")
 		jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
 		response = requests.get( SEARCH_URL + str(decade), headers = headers)
 		soup = BeautifulSoup(response.text, 'html.parser')
@@ -71,7 +67,7 @@ with psycopg2.connect(db_connection) as conn:
 		df_tmp.reset_index(inplace=True)
 		for i in range(len(df_tmp)):
 			if df_tmp.iloc[i]['jk'] not in jobmap.jk.values:
-				print(df_tmp.iloc[i]['jk'])
+				print(df_tmp.iloc[i]['title'])
 				cur.execute("""INSERT INTO jobmap
 					(jk, efccid, srcid,
 					cmpid, srcname, cmp,
@@ -88,27 +84,49 @@ with psycopg2.connect(db_connection) as conn:
 			else:
 				continue
 	cur.close()
-	
-#
-#DESC_URL = f'https://www.{INFACT}.com/viewjob?jk='
-#for jk in jobmap['jk']:
-#	filename = './jobs/'+jk
-#	if os.path.isfile(filename):
-#		continue
-#	else:
-#		print(jk)
-#		URL = DESC_URL + jk
-#		response = requests.get(URL, headers = headers )
-#		soup = BeautifulSoup(response.text,'html.parser')
-#		text = soup.get_text()
-#		try:
-#			text = text.split('Full Job Description')[1]
-#			text = text.split('Report jobApply')[0]
-#		except:
-#			None
-#		with open(filename,'w') as f:
-#			f.write(text)
-#
-#jobmap['mtime'] = list(map(lambda x: os.path.getmtime(f'./jobs/{x}'),jobmap['jk']))
-#with open(jobmap_cache,'wb') as f:
-#	pickle.dump(jobmap,f)
+
+def get_listing_date(RESPONSETXT):
+	p = re.compile(r'Just posted')
+	if len(p.findall(RESPONSETXT)) == 1:
+		return datetime.date.today().strftime('%Y%m%d')	
+	p = re.compile(r'.*Today')	
+	if len(p.findall(RESPONSETXT)) == 1:
+		return datetime.date.today().strftime('%Y%m%d')	
+	p = re.compile(r'[0-9]*\+? days? ago')
+	matches = p.search(RESPONSETXT)
+	if matches != None:
+		no_of_days = int(matches.group().split()[0].strip('+'))
+		doc_date = datetime.date.today() - datetime.timedelta(days = no_of_days)
+		return doc_date.strftime('%Y%m%d')
+	else:
+		return None
+
+
+with psycopg2.connect(db_connection) as conn:
+	cur = conn.cursor()	
+	DESC_URL = f'https://www.{INFACT}.com/viewjob?jk='
+	for jk in jobmap['jk']:
+		filename = './jobs/'+jk
+		if os.path.isfile(filename):
+			print('file found')
+			continue
+		else:
+			print(jk)
+			URL = DESC_URL + jk
+			response = requests.get(URL, headers = headers )
+			soup = BeautifulSoup(response.text,'html.parser')
+			text = soup.get_text()
+			print(get_listing_date(text))
+			cur.execute("""INSERT INTO creation_dates
+						(jk, cdate)
+						VALUES
+						(%s, %s)""",
+						(jk,get_listing_date(text)))
+			try:
+				text = text.split('Full Job Description')[1]
+				text = text.split('Report jobApply')[0]
+			except:
+				None
+			with open(filename,'w') as f:
+				f.write(text)
+	cur.close()
