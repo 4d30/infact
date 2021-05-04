@@ -2,14 +2,18 @@
 
 #coding: ascii
 import os
+import sys
+from random import SystemRandom
+
 import time
 import datetime
+
 import requests
 import brotli
 from bs4 import BeautifulSoup
 import re
 import json
-import pickle
+
 import pandas as pd
 import numpy as np
 import psycopg2
@@ -52,9 +56,10 @@ with psycopg2.connect(db_connection) as conn:
 	conn.set_client_encoding('UTF8')
 	cur = conn.cursor()
 	jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
-	for decade in range(0,20,10):
-		time.sleep(2)
-		print(decade, "################################################")
+	for decade in range(0,200,10):
+		delay = SystemRandom().randrange(3,12)
+		time.sleep(delay) # 
+		sys.stdout.write(f'{decade} \r')
 		jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
 		response = requests.get( SEARCH_URL + str(decade), headers = headers)
 		soup = BeautifulSoup(response.text, 'html.parser')
@@ -67,7 +72,6 @@ with psycopg2.connect(db_connection) as conn:
 		df_tmp.reset_index(inplace=True)
 		for i in range(len(df_tmp)):
 			if df_tmp.iloc[i]['jk'] not in jobmap.jk.values:
-				print(df_tmp.iloc[i]['title'])
 				cur.execute("""INSERT INTO jobmap
 					(jk, efccid, srcid,
 					cmpid, srcname, cmp,
@@ -96,9 +100,14 @@ def get_listing_date(RESPONSETXT):
 	matches = p.search(RESPONSETXT)
 	if matches != None:
 		no_of_days = int(matches.group().split()[0].strip('+'))
-		doc_date = datetime.date.today() - datetime.timedelta(days = no_of_days)
-		return doc_date.strftime('%Y%m%d')
+		if no_of_days < 31:
+			doc_date = datetime.date.today() - datetime.timedelta(days = no_of_days)
+			return doc_date.strftime('%Y%m%d')
+		else:
+			print("WARNING: Publication date does not conform to coded regex")
+			return None
 	else:
+		print("WARNING: Publication date does not conform to coded regex")
 		return None
 
 
@@ -108,25 +117,29 @@ with psycopg2.connect(db_connection) as conn:
 	for jk in jobmap['jk']:
 		filename = './jobs/'+jk
 		if os.path.isfile(filename):
-			print('file found')
 			continue
 		else:
 			print(jk)
+			delay = SystemRandom().randrange(3,12)
+			time.sleep(delay)
 			URL = DESC_URL + jk
 			response = requests.get(URL, headers = headers )
 			soup = BeautifulSoup(response.text,'html.parser')
 			text = soup.get_text()
-			print(get_listing_date(text))
-			cur.execute("""INSERT INTO creation_dates
-						(jk, cdate)
-						VALUES
-						(%s, %s)""",
-						(jk,get_listing_date(text)))
-			try:
-				text = text.split('Full Job Description')[1]
-				text = text.split('Report jobApply')[0]
-			except:
-				None
-			with open(filename,'w') as f:
-				f.write(text)
+			pub_date = get_listing_date(text)
+			if pub_date == None:
+				continue
+			else:
+				cur.execute("""INSERT INTO pub_dates
+							(jk, pub_date)
+							VALUES
+							(%s, %s)""",
+							(jk,get_listing_date(text)))
+				try:
+					text = text.split('Full Job Description')[1]
+					text = text.split('Report jobApply')[0]
+				except:
+					None
+				with open(filename,'w') as f:
+					f.write(text)
 	cur.close()
