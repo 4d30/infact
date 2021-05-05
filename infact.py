@@ -1,6 +1,6 @@
 #!/usr/bin/env /usr/pkg/bin/python3.8
 
-#coding: ascii
+#coding: utf-8
 import os
 import sys
 from random import SystemRandom
@@ -43,7 +43,7 @@ def fix_crappy_json(LINE):
 		return None
 
 headers = {
-	'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36',
+	'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36',
 	'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
 	'Accept-Encoding': 'gzip, deflate, br',
 	'Accept-Language': 'en-US,en;q=0.5'}
@@ -88,6 +88,7 @@ with psycopg2.connect(db_connection) as conn:
 			else:
 				continue
 	cur.close()
+	conn.commit()
 
 def get_listing_date(RESPONSETXT):
 	p = re.compile(r'Just posted')
@@ -96,7 +97,7 @@ def get_listing_date(RESPONSETXT):
 	p = re.compile(r'.*Today')	
 	if len(p.findall(RESPONSETXT)) == 1:
 		return datetime.date.today().strftime('%Y%m%d')	
-	p = re.compile(r'[0-9]*\+? days? ago')
+	p = re.compile(r'[0-9]?[0-9]\+? days? ago')
 	matches = p.search(RESPONSETXT)
 	if matches != None:
 		no_of_days = int(matches.group().split()[0].strip('+'))
@@ -109,18 +110,19 @@ def get_listing_date(RESPONSETXT):
 	else:
 		print("WARNING: Publication date does not conform to coded regex")
 		return None
-
+		
 
 with psycopg2.connect(db_connection) as conn:
 	cur = conn.cursor()	
+	jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
 	DESC_URL = f'https://www.{INFACT}.com/viewjob?jk='
 	for jk in jobmap['jk']:
 		filename = './jobs/'+jk
 		if os.path.isfile(filename):
 			continue
 		else:
-			print(jk)
 			delay = SystemRandom().randrange(3,12)
+			print(jk, delay*'#')
 			time.sleep(delay)
 			URL = DESC_URL + jk
 			response = requests.get(URL, headers = headers )
@@ -143,3 +145,4 @@ with psycopg2.connect(db_connection) as conn:
 				with open(filename,'w') as f:
 					f.write(text)
 	cur.close()
+	conn.commit()
