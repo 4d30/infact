@@ -7,12 +7,16 @@
 
 import os
 import multiprocessing as mp
+import datetime
 import time
+
+import psycopg2
 import pickle
 
 import pandas as pd
 import numpy as np
 import itertools
+
 
 from nltk import pos_tag
 from nltk.tokenize import word_tokenize, sent_tokenize, RegexpTokenizer
@@ -25,10 +29,20 @@ from nltk.util import ngrams
 # Corpus location
 filepath = './jobs/'
 
-# Open Cache
-jobmap_cache = './jobmap.pkl'
-with open(jobmap_cache,'rb') as f:
-	jobmap = pickle.load(f)
+db_connection = "dbname=infact user=pgsql"
+with psycopg2.connect(db_connection) as conn:
+	conn.set_client_encoding('UTF8')
+	cur = conn.cursor()
+	jobmap = pd.read_sql_query("""SELECT jobmap.jk, jobmap.cmpid, pub_dates.pub_date FROM jobmap
+								INNER JOIN pub_dates ON
+								jobmap.jk = pub_dates.jk
+								WHERE pub_dates.jk IS NOT NULL""",conn)
+
+
+# Open Cache. This will migrate to Postgres.
+#jobmap_cache = './jobmap.pkl'
+#with open(jobmap_cache,'rb') as f:
+#	jobmap = pickle.load(f)
 
 
 stop_words = set(stopwords.words("english"))
@@ -104,9 +118,10 @@ start_time = time.time()
 work_target = []
 for each in jobmap.cmpid.unique():
 	employer_listing = jobmap[jobmap.cmpid == each]
-	most_recent = employer_listing[employer_listing['mtime'] == employer_listing['mtime'].max()]['jk']
+	most_recent = employer_listing[employer_listing['pub_date'] == employer_listing['pub_date'].max()]['jk']
 	for val in most_recent:
 		work_target.append(val)
+#work_target = jobmap['jk']
 
 # Identify and count terms
 if __name__ == '__main__':
@@ -126,7 +141,7 @@ if __name__ == '__main__':
 		term_counter.update(pipes[i].recv())
 		pipes[i].close()
 		processes[i].join()
-print(f'Term Loop:\tTime elapsed: {time.time() - start_time:.2f} sec\n')	
+print(f'Term Loop:\t {time.time() - start_time:.2f} sec')	
 
 def are_terms_in_doc(TERMS, FILENAME):
 	termsindoc = FreqDist()
@@ -152,6 +167,7 @@ pipes = []
 processes = []
 doc_counter = np.zeros((len(term_counter.keys())), dtype = np.uint64)
 start_time = time.time()
+
 # Count number of docs which contain each term found earlier
 if __name__ == '__main__':
 	for job in divide_work(work_target):
@@ -172,7 +188,7 @@ if __name__ == '__main__':
 		pipes[i].close()
 		processes[i].join()
 
-print(f'Doc Loop:\tTime elapsed: {time.time() - start_time:.2f} sec\n')	
+print(f'Doc Loop:\t {time.time() - start_time:.2f} sec\n')	
 
 #[print(v) for i, v in enumerate(term_counter.items()) if i < 5]
 
@@ -194,6 +210,11 @@ df = df[df['doc_count'] > len(work_target)/8 ]
 
 df.index = list(map(lambda x: ' '.join(x), df.index))
 df.index.name = 'term'
+
+with psycopg2.connect(db_connection) as conn:
+	conn.set_client_encoding('UTF8')
+	cur = conn.cursor()
+	cur.execute(f'ALTER TABLE leaderboard ADD COLUMN "{str(datetime.date.today())}" date'.format(str(datetime.date.today())))
 
 print(df.sort_values(by='tf-idf_corpus', ascending=False)[0:50])
 df.sort_values(by='tf-idf_corpus', ascending=False).to_csv('./grams.csv')
