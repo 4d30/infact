@@ -7,10 +7,11 @@
 
 import os
 import multiprocessing as mp
-import datetime
+
 import time
 import datetime
 
+import io
 import psycopg2
 import pickle
 
@@ -44,7 +45,7 @@ wnl = WordNetLemmatizer()
 tokenizer = RegexpTokenizer(r'\w+')
 n_docs = len(jobmap)
 
-#
+####################################
 # TF functions
 def tag_nltk2wordnet(nltk_tag):
 	if nltk_tag.startswith('J'):
@@ -85,7 +86,7 @@ def count_terms_process_target(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER, PIPE):
 	PIPE.send(counter_obj)
 	PIPE.close()
 
-#
+####################################
 # DF_Functions
 def are_terms_in_doc(TERMS, FILENAME):
 	termsindoc = FreqDist()
@@ -107,7 +108,7 @@ def count_doc_process_target(PATH, PARTIAL_LIST_OF_JK, TERMS, ARRAY, PIPE):
 	PIPE.send(count_array)
 	PIPE.close()
 
-#
+####################################
 # General MP Functions
 def count_terms_in_slice(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER):
 	for index, jk in enumerate(PARTIAL_LIST_OF_JK):
@@ -130,9 +131,9 @@ def divide_work(FULL_LIST_OF_JK):
 			work_schedule[i,1] = len(FULL_LIST_OF_JK) - distance
 	return work_schedule
 
+####################################
 # Let's only target the most recent post from each employer
 # within the last 30 days
-
 def get_target_date(NUMBER_OF_DAYS_BEFORE_TODAY):
 	return datetime.date.today() - datetime.timedelta(days = NUMBER_OF_DAYS_BEFORE_TODAY)
 
@@ -147,20 +148,26 @@ def get_work_target(DATAFRAME, TARGET_DATE, MAX_AGE_IN_DAYS):
 			if ( pub_date > n_days_befor_target and pub_date < target_date):
 				work_target.append(val)
 			else:
-				print(val, pub_date)
 				continue
 	return work_target
 
 with psycopg2.connect(db_connection) as conn:
 	conn.set_client_encoding('UTF8')
 	cur = conn.cursor()
-	for days in range(1,30):
+	cur.execute("SELECT MAX(date_) FROM leaderboard")
+	db_date = cur.fetchone()[0]
+	for days in range(1,45):
 		term_counter = Counter()
 		start_time = time.time()
 		target_date = get_target_date(days)
+		if db_date is not None:
+			if target_date <= db_date:
+				break
+		print(target_date.strftime("%Y-%m-%d"))
 		work_target = get_work_target(jobmap, target_date, 30)
 		pipes = []
 		processes = []
+		####################################
 		# Identify and count terms
 		if __name__ == '__main__':
 			for job in divide_work(work_target):
@@ -185,6 +192,7 @@ with psycopg2.connect(db_connection) as conn:
 		processes = []
 		doc_counter = np.zeros((len(term_counter.keys())), dtype = np.uint64)
 		start_time = time.time()
+		####################################
 		# Count number of docs which contain each term found earlier
 		if __name__ == '__main__':
 			for job in divide_work(work_target):
@@ -205,7 +213,7 @@ with psycopg2.connect(db_connection) as conn:
 				pipes[i].close()
 				processes[i].join()
 		
-		print(f'Doc Loop:\t {time.time() - start_time:.2f} sec\n')	
+		print(f'Doc Loop:\t {time.time() - start_time:.2f} sec')	
 		def logtf(LISTLIKE):
 			if LISTLIKE > 0:
 				return 1 + np.log(LISTLIKE)
@@ -217,18 +225,30 @@ with psycopg2.connect(db_connection) as conn:
 		df['idf'] = np.log(n_docs/df['doc_count'])
 		df['tf-idf_corpus'] = df['tf_corpus']*df['idf']
 		
-		# Select only terms which appear in more than 1/8 of documents
-		df = df[df['doc_count'] > len(work_target)/8 ]
+		####################################
+		# Select only terms which appear in more than 55 documents
 		df.index = list(map(lambda x: ' '.join(x), df.index))
 		df.index.name = 'term'
+
+		df['date'] = [target_date for i in df.index]
 	
-		for i in range(len(df)):
-			try:	
-				cur.execute("""INSERT INTO leaderboard (term, date_, tfidf)
-							VALUES (%s, %s, %s)""",
-							(df.index[i], target_date, df.iloc[i]['tf-idf_corpus']))
-			except:
-				continue
+		buffer = io.StringIO()
+		df_write = df.loc[:,['date','doc_count','tf-idf_corpus']]
+		df_write['doc_count'] = df_write['doc_count'].astype(int)
+		df_write.to_csv(buffer, index_label = 'term',  header = False)
+		buffer.seek(0)
+		start_time = time.time()
+		try:
+			cur.copy_from(buffer, 'leaderboard', sep = ",")
+			conn.commit()
+		except:
+			print("Error: INSERT exception! Rolling back changes")
+			conn.rollback()
+		print(f'Insert Loop:\t {time.time() - start_time:.2f} sec\n')	
 	cur.close()
-print(df.sort_values(by='tf-idf_corpus', ascending=False)[0:50])
-df.sort_values(by='tf-idf_corpus', ascending=False).to_csv('./grams.csv')
+try:		
+#	print(df.sort_values(by='tf-idf_corpus', ascending=False)[0:50])
+	df.sort_values(by='tf-idf_corpus', ascending=False).to_csv('./grams.csv')
+except:
+	None
+	
