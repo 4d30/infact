@@ -132,11 +132,16 @@ with psycopg2.connect(db_connection) as conn:
 			if pub_date == None:
 				continue
 			else:
-				cur.execute("""INSERT INTO pub_dates
+				try:
+					cur.execute("""INSERT INTO pub_dates
 							(jk, pub_date)
 							VALUES
 							(%s, %s)""",
 							(jk,get_listing_date(text)))
+				except:
+					print("EXCEPTION")
+					print(jk)
+					print(get_listing_date(text))
 				try:
 					text = text.split('Full Job Description')[1]
 					text = text.split('Report jobApply')[0]
