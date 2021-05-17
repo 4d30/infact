@@ -1,6 +1,6 @@
-DROP TABLE leaderboard;
+/* DROP TABLE leaderboard;*/ 
 CREATE TABLE leaderboard (
-	term 	varchar(100),
+	term 	text,
 	date_	date,
 	ndocs	integer,
 	tfidf	decimal,
