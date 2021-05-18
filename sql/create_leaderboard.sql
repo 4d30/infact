@@ -1,4 +1,4 @@
-/* DROP TABLE leaderboard;*/ 
+/* DROP TABLE leaderboard;*/
 CREATE TABLE leaderboard (
 	term 	text,
 	date_	date,
