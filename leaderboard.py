@@ -156,13 +156,13 @@ with psycopg2.connect(db_connection) as conn:
 	cur = conn.cursor()
 	cur.execute("SELECT MAX(date_) FROM leaderboard")
 	db_date = cur.fetchone()[0]
-	for days in range(1,45):
+	for days in range(1,50):
 		term_counter = Counter()
 		start_time = time.time()
 		target_date = get_target_date(days)
-		if db_date is not None:
-			if target_date <= db_date:
-				break
+	#	if db_date is not None:
+	#		if target_date <= db_date:
+	#			break
 		print(target_date.strftime("%Y-%m-%d"))
 		work_target = get_work_target(jobmap, target_date, 30)
 		pipes = []
