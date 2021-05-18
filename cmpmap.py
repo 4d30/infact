@@ -2,10 +2,14 @@
 
 import os
 
+from random import SystemRandom
+import time
+
 from bs4 import BeautifulSoup
 import brotli
 import requests
 import psycopg2
+
 
 INFACT = os.environ['INFACT']
 
@@ -33,21 +37,35 @@ with psycopg2.connect(dbcn) as conn:
 	conn.set_client_encoding('UTF8')
 	cur = conn.cursor()
 	cur2 = conn.cursor()
+	cur3 = conn.cursor()
 	cur.execute("SELECT DISTINCT cmp FROM jobmap")
 	for cmp in cur:
-		template = {'headquarters': None, 'revenue': None, 'employees': None, 'industry': None, 'links': None}
-		URL = f"https://www.{INFACT}.com/cmp/{cmp[0].replace(' ','-')}/about"
-		print(URL)
-		response = requests.get(URL)
-		soup = BeautifulSoup(response.text,'html.parser')
-		biz_info = page_type_one(template, soup)	
-		if biz_info == template:
-			biz_info = page_type_two(template, soup)
-		print(biz_info)	
-		cur2.execute("""INSERT INTO cmpdir
-			(cmp, headquarters, revenue, employees, industry, links)
-			VALUES
-			(%s, %s, %s, %s, %s, %s) """,
+		fuse = False
+		cur3.execute("SELECT DISTINCT cmp FROM cmpdir")
+		for cmp3 in cur3:
+			if cmp == cmp3 and cmp3 is not None: 
+				print("fuse")
+				fuse = True
+				break
+		if fuse == True:
+			continue	
+		else:
+			delay = SystemRandom().randrange(3,12)
+			print(cmp, delay*'#')
+			time.sleep(delay)
+			template = {'headquarters': None, 'revenue': None, 'employees': None, 'industry': None, 'links': None}
+			URL = f"https://www.{INFACT}.com/cmp/{cmp[0].replace(' ','-')}/about"
+			print(URL)
+			response = requests.get(URL)
+			soup = BeautifulSoup(response.text,'html.parser')
+			biz_info = page_type_one(template, soup)	
+			if biz_info == template:
+				biz_info = page_type_two(template, soup)
+			print(biz_info)	
+			cur2.execute("""INSERT INTO cmpdir
+				(cmp, headquarters, revenue, employees, industry, links)
+				VALUES
+				(%s, %s, %s, %s, %s, %s) """,
 			(cmp[0], biz_info['headquarters'], biz_info['revenue'], biz_info['employees'], biz_info['industry'], biz_info['links']))
 	cur2.close()
 	cur.close()
