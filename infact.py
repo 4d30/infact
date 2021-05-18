@@ -49,7 +49,7 @@ headers = {
 	'Accept-Language': 'en-US,en;q=0.5'}
 
 INFACT = os.environ['INFACT']
-SEARCH_URL= f'https://www.{INFACT}.com/jobs?q=data+scientist&l=new+york,+ny&sort=date&start='
+SEARCH_URL= f'https://www.{INFACT}.com/jobs?q=data+scientist&sort=date&start='
 script = ''
 print('Go!')
 with psycopg2.connect(db_connection) as conn:
