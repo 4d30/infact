@@ -44,14 +44,13 @@ with psycopg2.connect(dbcn) as conn:
 		cur3.execute("SELECT DISTINCT cmp FROM cmpdir")
 		for cmp3 in cur3:
 			if cmp == cmp3 and cmp3 is not None: 
-				print("fuse")
 				fuse = True
 				break
 		if fuse == True:
 			continue	
 		else:
 			delay = SystemRandom().randrange(3,12)
-			print(cmp, delay*'#')
+			print(cmp[0], delay*'#')
 			time.sleep(delay)
 			template = {'headquarters': None, 'revenue': None, 'employees': None, 'industry': None, 'links': None}
 			URL = f"https://www.{INFACT}.com/cmp/{cmp[0].replace(' ','-')}/about"
