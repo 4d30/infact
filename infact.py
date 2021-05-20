@@ -122,13 +122,13 @@ with psycopg2.connect(db_connection) as conn:
 			continue
 		else:
 			delay = SystemRandom().randrange(3,12)
-			print(jk, delay*'#')
 			time.sleep(delay)
 			URL = DESC_URL + jk
 			response = requests.get(URL, headers = headers )
 			soup = BeautifulSoup(response.text,'html.parser')
 			text = soup.get_text()
 			pub_date = get_listing_date(text)
+			print(jk, pub_date, delay*'#')
 			if pub_date == None:
 				continue
 			else:
