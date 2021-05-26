@@ -39,8 +39,21 @@ with psycopg2.connect(db_connection) as conn:
 								INNER JOIN pub_dates ON
 								jobmap.jk = pub_dates.jk
 								WHERE pub_dates.jk IS NOT NULL""",conn)
+	cur.execute("SELECT cmp from cmpdir;")
+	tuples = cur.fetchall()
+	tmp_cmps = [ tuple_[0].lower() for tuple_ in tuples]
+	cur.close()
+
 jobmap.set_index('jk', inplace = True)
-stop_words = set(stopwords.words("english"))
+stop_words = list(stopwords.words("english"))
+
+#for each_cmp in tmp_cmps:
+#	split_on_whitespace = each_cmp.split()
+#	for	term in split_on_whitespace: 	
+#		stop_words.append(term.strip(',()[]'))
+#
+#
+print("####\n",stop_words)
 wnl = WordNetLemmatizer()
 tokenizer = RegexpTokenizer(r'\w+')
 n_docs = len(jobmap)
@@ -160,9 +173,9 @@ with psycopg2.connect(db_connection) as conn:
 		term_counter = Counter()
 		start_time = time.time()
 		target_date = get_target_date(days)
-	#	if db_date is not None:
-	#		if target_date <= db_date:
-	#			break
+		if db_date is not None:
+			if target_date <= db_date:
+				break
 		print(target_date.strftime("%Y-%m-%d"))
 		work_target = get_work_target(jobmap, target_date, 30)
 		pipes = []
