@@ -1,6 +1,7 @@
-/*DROP TABLE jobmap;*/
+/* DROP TABLE jobmap;*/
 CREATE TABLE jobmap(
 	jk text PRIMARY KEY,
+    qloc text,
 	efccid text,
 	srcid text,
 	cmpid text,
@@ -14,4 +15,4 @@ CREATE TABLE jobmap(
 	city text,
 	title text,
 	locid text,
-	rd text;
+	rd text);
