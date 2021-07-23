@@ -132,7 +132,7 @@ def count_terms_in_slice(PATH, PARTIAL_LIST_OF_JK, TERMCOUNTER):
 	return TERMCOUNTER
 
 def divide_work(FULL_LIST_OF_JK):
-	n_cpus = mp.cpu_count()
+	n_cpus = mp.cpu_count()*1
 	job_length = np.floor(len(FULL_LIST_OF_JK)/n_cpus)
 	work_schedule = np.zeros((n_cpus,2), dtype = np.uint64)
 	for i in range(0, n_cpus):
@@ -177,7 +177,7 @@ with psycopg2.connect(db_connection) as conn:
 			if target_date <= db_date:
 				break
 		print(target_date.strftime("%Y-%m-%d"))
-		work_target = get_work_target(jobmap, target_date, 30)
+		work_target = get_work_target(jobmap, target_date, 7)
 		pipes = []
 		processes = []
 		####################################
