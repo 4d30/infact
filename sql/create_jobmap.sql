@@ -1,7 +1,6 @@
 /* DROP TABLE jobmap;*/
 CREATE TABLE jobmap(
 	jk text PRIMARY KEY,
-    qloc text,
 	efccid text,
 	srcid text,
 	cmpid text,
