@@ -3,101 +3,100 @@
 #coding: utf-8
 import os
 import sys
+import subprocess
 from random import SystemRandom
 import time
 import datetime
 import re
-import json
 
 from bs4 import BeautifulSoup
-import brotli
-import requests
+
+from selenium import webdriver
+from selenium.webdriver.firefox.options import Options
 
 import pandas as pd
 import psycopg2
 
-#pd.set_option('display.max_rows', None)
-#pd.set_option('display.max_columns', None)
+FF_OPTS = Options()
+FF_PRO = webdriver.FirefoxProfile()
+FF_PRO.set_preference("general.useragent.override",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0")
+#firefox_opts.headless = True
+driver= webdriver.Firefox(firefox_profile = FF_PRO, options=FF_OPTS)
 
 DB_CONNECTION = "dbname=infact user=pgsql"
-
-HEADERS = {
-    'User-Agent': 
-    ('Mozilla/5.0 (Windows NT 10.0; Win64; x64)' 
-    'AppleWebKit/537.36 (KHTML, like Gecko) '
-    'Chrome/91.0.4472.77 Safari/537.36'),
-    'Accept':
-    ('text/html,application/xhtml+xml,'
-    'application/xml;q=0.9,image/webp,'
-    'image/apng,*/*;q=0.8'),
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Accept-Language': 'en-US,en;q=0.5'}
-
 INFACT = os.environ['INFACT']
 script = ''
 print('Go!')
 
-def get_listing_date(response_text):
+def get_listing_date(soup):
+    footer_txt = str(soup.find_all(class_ = 'jobsearch-JobMetadataFooter')[0])
     pattern = re.compile(r'Just posted')
-    if len(pattern.findall(response_text)) == 1:
+    if len(pattern.findall(footer_txt)) == 1:
         return datetime.date.today().strftime('%Y%m%d')
-    pattern = re.compile(r'.*Today')
-    if len(pattern.findall(response_text)) == 1:
+    pattern = re.compile(r'Today')
+    if len(pattern.findall(footer_txt)) == 1:
         return datetime.date.today().strftime('%Y%m%d')
     pattern = re.compile(r'[0-9]?[0-9]\+? days? ago')
-    matches = pattern.search(response_text)
+    matches = pattern.search(str(footer_txt))
     if matches is not None:
         no_of_days = int(matches.group().split()[0].strip('+'))
-        if no_of_days < 31:
+        if no_of_days < 30:
             doc_date = datetime.date.today() - datetime.timedelta(days = no_of_days)
             return doc_date.strftime('%Y%m%d')
         else:
-            print("WARNING: Publication date does not conform to coded regex")
-            return None
+            return '19000101'
     else:
-        print("WARNING: Publication date does not conform to coded regex")
         return None
 
-with psycopg2.connect(DB_CONNECTION) as conn:
-    cur = conn.cursor()
-    jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
-    DESC_URL = f'https://www.{INFACT}.com/viewjob?jk='
-    for jk in jobmap['jk']:
-        filename = './jobs/'+jk
-        if os.path.isfile(filename):
+conn = psycopg2.connect(DB_CONNECTION)
+cur = conn.cursor()
+jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
+DESC_URL = f'https://www.{INFACT}.com/viewjob?jk='
+for jk in jobmap['jk']:
+    filename = './jobs/'+jk
+    if os.path.isfile(filename):
+        continue
+    else:
+        delay = SystemRandom().randrange(5,12)
+        time.sleep(delay)
+        URL = DESC_URL + jk
+        try:
+            driver.get(URL)
+        except:
+            continue
+        response = driver.page_source
+        soup = BeautifulSoup(response,'html.parser')
+        if 'captcha' in str(soup.find('title')).lower():
+            print('Captcha!')
+            subprocess.call(['xterm', '-e', './alarm.sh'])
+            input("Press enter to continue...")
+        response = driver.page_source
+        soup = BeautifulSoup(response,'html.parser')
+        try:
+            pub_date = get_listing_date(soup)
+        except:
+            print(jk)
+            continue
+        print(jk, pub_date, delay*'#')
+        if pub_date is None:
             continue
         else:
-            delay = SystemRandom().randrange(3,12)
-            time.sleep(delay)
-            URL = DESC_URL + jk
-            response = requests.get(URL, headers = HEADERS )
-            soup = BeautifulSoup(response.text,'html.parser')
-            if 'captcha' in str(soup.find('title')).lower():
-                print('Captcha!')
-                cur.close()
-                sys.exit()
-            text = soup.get_text()
-            pub_date = get_listing_date(text)
-            print(jk, pub_date, delay*'#')
-            if pub_date is None:
-                continue
-            else:
+            try:
+                cur.execute("""INSERT INTO pub_dates
+                        (jk, pub_date)
+                        VALUES
+                        (%s, %s)""",
+                        (jk,get_listing_date(soup)))
+                conn.commit()
+            except:
+                print("EXCEPTION")
+                print(jk)
+                print(get_listing_date(soup))
+            with open(filename,'w') as f:
                 try:
-                    cur.execute("""INSERT INTO pub_dates
-                            (jk, pub_date)
-                            VALUES
-                            (%s, %s)""",
-                            (jk,get_listing_date(text)))
+                   f.write(driver.find_element_by_id("jobDescriptionText").text)
                 except:
-                    print("EXCEPTION")
-                    print(jk)
-                    print(get_listing_date(text))
-                try:
-                    text = text.split('Full Job Description')[1]
-                    text = text.split('Report jobApply')[0]
-                except:
-                    None
-                with open(filename,'w') as f:
-                    f.write(text)
-    cur.close()
-    conn.commit()
+                   print("could not write to file") 
+cur.close()
+conn.close()
