@@ -125,42 +125,48 @@ def process_target(partial_list_of_jk, pipe):
     pipe.send(output)
     pipe.close()
 
-fd_resume = get_freqdist([RESUME_FILE])
 
-with psycopg2.connect(DB_CONNECTION) as conn:
-    cur = conn.cursor()
-    cur.execute("SELECT jk from cosine")
-    already_processed = cur.fetchall()
-    cur.close()
+def main():
+    fd_resume = get_freqdist([RESUME_FILE])
+    
+    with psycopg2.connect(DB_CONNECTION) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT jk from cosine")
+        already_processed = cur.fetchall()
+        cur.close()
+    
+    flattened = [i[0] for i in already_processed]
+    work_target = [j for j in os.listdir("./jobs/") if j not in flattened ]
+    
+    
+    pipes = []
+    processes = []
+    cos_dict = {}
+    if __name__ == '__main__':
+        for job in divide_work(work_target):
+            workslice = work_target[job[0]:job[0]+job[1]]
+            pipe_recv, pipe_send = mp.Pipe(False)
+            pipes.append(pipe_recv)
+            p = mp.Process(target=process_target,
+                args=(workslice,
+                pipe_send))
+            processes.append(p)    
+            p.start()
+        for i in range(len(processes)):
+            cos_dict.update(pipes[i].recv())        
+            processes[i].join()        
+    
+    buffer = io.StringIO()
+    w = csv.writer(buffer)
+    w.writerows(cos_dict.items())
+    buffer.seek(0)
+    
+    with psycopg2.connect(DB_CONNECTION) as conn:
+        conn.set_client_encoding('UTF8')
+        cur = conn.cursor()
+        cur.copy_from(buffer, 'cosine', sep = ",")
 
-flattened = [i[0] for i in already_processed]
-work_target = [j for j in os.listdir("./jobs/") if j not in flattened ]
 
-
-pipes = []
-processes = []
-cos_dict = {}
 if __name__ == '__main__':
-    for job in divide_work(work_target):
-        workslice = work_target[job[0]:job[0]+job[1]]
-        pipe_recv, pipe_send = mp.Pipe(False)
-        pipes.append(pipe_recv)
-        p = mp.Process(target=process_target,
-            args=(workslice,
-            pipe_send))
-        processes.append(p)    
-        p.start()
-    for i in range(len(processes)):
-        cos_dict.update(pipes[i].recv())        
-        processes[i].join()        
-
-buffer = io.StringIO()
-w = csv.writer(buffer)
-w.writerows(cos_dict.items())
-buffer.seek(0)
-
-with psycopg2.connect(DB_CONNECTION) as conn:
-    conn.set_client_encoding('UTF8')
-    cur = conn.cursor()
-    cur.copy_from(buffer, 'cosine', sep = ",")
+    main()
 

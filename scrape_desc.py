@@ -17,17 +17,6 @@ from selenium.webdriver.firefox.options import Options
 import pandas as pd
 import psycopg2
 
-FF_OPTS = Options()
-FF_PRO = webdriver.FirefoxProfile()
-FF_PRO.set_preference("general.useragent.override",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0")
-#firefox_opts.headless = True
-driver= webdriver.Firefox(firefox_profile = FF_PRO, options=FF_OPTS)
-
-DB_CONNECTION = "dbname=infact user=pgsql"
-INFACT = os.environ['INFACT']
-script = ''
-print('Go!')
 
 def get_listing_date(soup):
     footer_txt = str(soup.find_all(class_ = 'jobsearch-JobMetadataFooter')[0])
@@ -49,54 +38,74 @@ def get_listing_date(soup):
     else:
         return None
 
-conn = psycopg2.connect(DB_CONNECTION)
-cur = conn.cursor()
-jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
-DESC_URL = f'https://www.{INFACT}.com/viewjob?jk='
-for jk in jobmap['jk']:
-    filename = './jobs/'+jk
-    if os.path.isfile(filename):
+def get_soup(jk):
+    delay = SystemRandom().randrange(5,12)
+    time.sleep(delay)
+    URL = DESC_URL + jk
+    try:
+        driver.get(URL)
+    except:
         continue
-    else:
-        delay = SystemRandom().randrange(5,12)
-        time.sleep(delay)
-        URL = DESC_URL + jk
-        try:
-            driver.get(URL)
-        except:
-            continue
-        response = driver.page_source
-        soup = BeautifulSoup(response,'html.parser')
-        if 'captcha' in str(soup.find('title')).lower():
-            print('Captcha!')
-            subprocess.call(['xterm', '-e', './alarm.sh'])
-            input("Press enter to continue...")
-        response = driver.page_source
-        soup = BeautifulSoup(response,'html.parser')
-        try:
-            pub_date = get_listing_date(soup)
-        except:
-            print(jk)
-            continue
-        print(jk, pub_date, delay*'#')
-        if pub_date is None:
+    response = driver.page_source
+    soup = BeautifulSoup(response,'html.parser')
+    if 'captcha' in str(soup.find('title')).lower():
+        print('Captcha!')
+        subprocess.call(['xterm', '-e', './alarm.sh'])
+        input("Press enter to continue...")
+    response = driver.page_source
+    soup = BeautifulSoup(response,'html.parser')
+    return soup
+
+def main():
+    FF_OPTS = Options()
+    FF_PRO = webdriver.FirefoxProfile()
+    FF_PRO.set_preference("general.useragent.override",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0")
+    #firefox_opts.headless = True
+    driver= webdriver.Firefox(firefox_profile = FF_PRO, options=FF_OPTS)
+
+    DB_CONNECTION = "dbname=infact user=pgsql"
+
+    INFACT = os.environ['INFACT']
+
+    script = ''
+    conn = psycopg2.connect(DB_CONNECTION)
+    cur = conn.cursor()
+    jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
+    DESC_URL = f'https://www.{INFACT}.com/viewjob?jk='
+    for jk in jobmap['jk']:
+        filename = './jobs/'+jk
+        if os.path.isfile(filename):
             continue
         else:
+            soup = get_soup(jk)
             try:
-                cur.execute("""INSERT INTO pub_dates
-                        (jk, pub_date)
-                        VALUES
-                        (%s, %s)""",
-                        (jk,get_listing_date(soup)))
-                conn.commit()
+                pub_date = get_listing_date(soup)
             except:
-                print("EXCEPTION")
                 print(jk)
-                print(get_listing_date(soup))
-            with open(filename,'w') as f:
+                continue
+            print(jk, pub_date, delay*'#')
+            if pub_date is None:
+                continue
+            else:
                 try:
-                   f.write(driver.find_element_by_id("jobDescriptionText").text)
+                    cur.execute("""INSERT INTO pub_dates
+                            (jk, pub_date)
+                            VALUES
+                            (%s, %s)""",
+                            (jk, pub_date)
+                    conn.commit()
                 except:
-                   print("could not write to file") 
-cur.close()
-conn.close()
+                    print("EXCEPTION", jk, pub_date)
+                    continue
+                with open(filename,'w') as f:
+                    try:
+                       f.write(driver.find_element_by_id("jobDescriptionText").text)
+                    except:
+                       print("could not write to file") 
+    cur.close()
+    conn.close()
+    driver.quit()
+
+if __name__ == '__main__':
+    main()

@@ -28,35 +28,6 @@ from nltk.stem import WordNetLemmatizer
 from nltk.util import ngrams
 
 
-# Corpus location
-filepath = './jobs/'
-
-db_connection = "dbname=infact user=pgsql"
-with psycopg2.connect(db_connection) as conn:
-	conn.set_client_encoding('UTF8')
-	cur = conn.cursor()
-	jobmap = pd.read_sql_query("""SELECT jobmap.jk, jobmap.cmpid, pub_dates.pub_date FROM jobmap
-								INNER JOIN pub_dates ON
-								jobmap.jk = pub_dates.jk
-								WHERE pub_dates.jk IS NOT NULL""",conn)
-	cur.execute("SELECT cmp from cmpdir;")
-	tuples = cur.fetchall()
-	tmp_cmps = [ tuple_[0].lower() for tuple_ in tuples]
-	cur.close()
-
-jobmap.set_index('jk', inplace = True)
-stop_words = list(stopwords.words("english"))
-
-#for each_cmp in tmp_cmps:
-#	split_on_whitespace = each_cmp.split()
-#	for	term in split_on_whitespace: 	
-#		stop_words.append(term.strip(',()[]'))
-#
-#
-print("####\n",stop_words)
-wnl = WordNetLemmatizer()
-tokenizer = RegexpTokenizer(r'\w+')
-n_docs = len(jobmap)
 
 ####################################
 # TF functions
@@ -164,104 +135,129 @@ def get_work_target(DATAFRAME, TARGET_DATE, MAX_AGE_IN_DAYS):
 				continue
 	return work_target
 
-with psycopg2.connect(db_connection) as conn:
-	conn.set_client_encoding('UTF8')
-	cur = conn.cursor()
-	cur.execute("SELECT MAX(date_) FROM leaderboard")
-	db_date = cur.fetchone()[0]
-	for days in range(1,50):
-		term_counter = Counter()
-		start_time = time.time()
-		target_date = get_target_date(days)
-		if db_date is not None:
-			if target_date <= db_date:
-				break
-		print(target_date.strftime("%Y-%m-%d"))
-		work_target = get_work_target(jobmap, target_date, 7)
-		pipes = []
-		processes = []
-		####################################
-		# Identify and count terms
-		if __name__ == '__main__':
-			for job in divide_work(work_target):
-				workslice = work_target[job[0]:job[0]+job[1]]
-				pipe_recv, pipe_send = mp.Pipe(False)
-				pipes.append(pipe_recv)
-				p = mp.Process(target=count_terms_process_target, 
-								args=('./jobs/', 
-										workslice, 
-										Counter(), 
-										pipe_send))
-				processes.append(p)
-				p.start()
-			
-			for i in range(len(processes)):
-				term_counter.update(pipes[i].recv())
-				pipes[i].close()
-				processes[i].join()
-		print(f'Term Loop:\t {time.time() - start_time:.2f} sec')	
-			
-		pipes = []
-		processes = []
-		doc_counter = np.zeros((len(term_counter.keys())), dtype = np.uint64)
-		start_time = time.time()
-		####################################
-		# Count number of docs which contain each term found earlier
-		if __name__ == '__main__':
-			for job in divide_work(work_target):
-				workslice = work_target[job[0]:job[0]+job[1]]
-				pipe_recv, pipe_send = mp.Pipe(False)
-				pipes.append(pipe_recv)
-				p = mp.Process(target=count_doc_process_target,
-								args=('./jobs/', 
-									workslice, 
-									list(term_counter.keys()), 
-									np.zeros((len(term_counter.keys())), dtype = np.longlong),
-									pipe_send))
-				processes.append(p)
-				p.start()
-			
-			for i in range(len(processes)):
-				doc_counter = doc_counter + pipes[i].recv()
-				pipes[i].close()
-				processes[i].join()
-		
-		print(f'Doc Loop:\t {time.time() - start_time:.2f} sec')	
-		def logtf(LISTLIKE):
-			if LISTLIKE > 0:
-				return 1 + np.log(LISTLIKE)
-			else:
-				return 0
-		df = pd.DataFrame.from_dict(term_counter, orient='index', dtype = int, columns = ['term_count'])
-		df['doc_count'] = doc_counter
-		df['tf_corpus'] = list(map(logtf,df['term_count'])) #1 + np.log(df['term_count']) #/sum(df['term_count'])
-		df['idf'] = np.log(n_docs/df['doc_count'])
-		df['tf-idf_corpus'] = df['tf_corpus']*df['idf']
-		
-		####################################
-		# Select only terms which appear in more than 55 documents
-		df.index = list(map(lambda x: ' '.join(x), df.index))
-		df.index.name = 'term'
-
-		df['date'] = [target_date for i in df.index]
-	
-		buffer = io.StringIO()
-		df_write = df.loc[:,['date','doc_count','tf-idf_corpus']]
-		df_write['doc_count'] = df_write['doc_count'].astype(int)
-		df_write.to_csv(buffer, index_label = 'term',  header = False)
-		buffer.seek(0)
-		start_time = time.time()
-		try:
-			cur.copy_from(buffer, 'leaderboard', sep = ",")
-			conn.commit()
-		except:
-			print("Error: INSERT exception! Rolling back changes")
-			conn.rollback()
-		print(f'Insert Loop:\t {time.time() - start_time:.2f} sec\n')	
-	cur.close()
-try:		
-#	print(df.sort_values(by='tf-idf_corpus', ascending=False)[0:50])
-	df.sort_values(by='tf-idf_corpus', ascending=False).to_csv('./grams.csv')
-except:
-	None
-	
+def main():
+    filepath = './jobs/'
+    
+    db_connection = "dbname=infact user=pgsql"
+    with psycopg2.connect(db_connection) as conn:
+    	conn.set_client_encoding('UTF8')
+    	cur = conn.cursor()
+    	jobmap = pd.read_sql_query("""SELECT jobmap.jk, jobmap.cmpid, pub_dates.pub_date FROM jobmap
+    								INNER JOIN pub_dates ON
+    								jobmap.jk = pub_dates.jk
+    								WHERE pub_dates.jk IS NOT NULL""",conn)
+    	cur.execute("SELECT cmp from cmpdir;")
+    	tuples = cur.fetchall()
+    	tmp_cmps = [ tuple_[0].lower() for tuple_ in tuples]
+    	cur.close()
+    
+    jobmap.set_index('jk', inplace = True)
+    stop_words = list(stopwords.words("english"))
+    
+    wnl = WordNetLemmatizer()
+    tokenizer = RegexpTokenizer(r'\w+')
+    n_docs = len(jobmap)
+    
+    with psycopg2.connect(db_connection) as conn:
+    	conn.set_client_encoding('UTF8')
+    	cur = conn.cursor()
+    	cur.execute("SELECT MAX(date_) FROM leaderboard")
+    	db_date = cur.fetchone()[0]
+    	for days in range(1,50):
+    		term_counter = Counter()
+    		start_time = time.time()
+    		target_date = get_target_date(days)
+    		if db_date is not None:
+    			if target_date <= db_date:
+    				break
+    		print(target_date.strftime("%Y-%m-%d"))
+    		work_target = get_work_target(jobmap, target_date, 7)
+    		pipes = []
+    		processes = []
+    		####################################
+    		# Identify and count terms
+    		if __name__ == '__main__':
+    			for job in divide_work(work_target):
+    				workslice = work_target[job[0]:job[0]+job[1]]
+    				pipe_recv, pipe_send = mp.Pipe(False)
+    				pipes.append(pipe_recv)
+    				p = mp.Process(target=count_terms_process_target, 
+    								args=('./jobs/', 
+    										workslice, 
+    										Counter(), 
+    										pipe_send))
+    				processes.append(p)
+    				p.start()
+    			
+    			for i in range(len(processes)):
+    				term_counter.update(pipes[i].recv())
+    				pipes[i].close()
+    				processes[i].join()
+    		print(f'Term Loop:\t {time.time() - start_time:.2f} sec')	
+    			
+    		pipes = []
+    		processes = []
+    		doc_counter = np.zeros((len(term_counter.keys())), dtype = np.uint64)
+    		start_time = time.time()
+    		####################################
+    		# Count number of docs which contain each term found earlier
+    		if __name__ == '__main__':
+    			for job in divide_work(work_target):
+    				workslice = work_target[job[0]:job[0]+job[1]]
+    				pipe_recv, pipe_send = mp.Pipe(False)
+    				pipes.append(pipe_recv)
+    				p = mp.Process(target=count_doc_process_target,
+    								args=('./jobs/', 
+    									workslice, 
+    									list(term_counter.keys()), 
+    									np.zeros((len(term_counter.keys())), dtype = np.longlong),
+    									pipe_send))
+    				processes.append(p)
+    				p.start()
+    			
+    			for i in range(len(processes)):
+    				doc_counter = doc_counter + pipes[i].recv()
+    				pipes[i].close()
+    				processes[i].join()
+    		
+    		print(f'Doc Loop:\t {time.time() - start_time:.2f} sec')	
+    		def logtf(LISTLIKE):
+    			if LISTLIKE > 0:
+    				return 1 + np.log(LISTLIKE)
+    			else:
+    				return 0
+    		df = pd.DataFrame.from_dict(term_counter, orient='index', dtype = int, columns = ['term_count'])
+    		df['doc_count'] = doc_counter
+    		df['tf_corpus'] = list(map(logtf,df['term_count'])) #1 + np.log(df['term_count']) #/sum(df['term_count'])
+    		df['idf'] = np.log(n_docs/df['doc_count'])
+    		df['tf-idf_corpus'] = df['tf_corpus']*df['idf']
+    		
+    		####################################
+    		# Select only terms which appear in more than 55 documents
+    		df.index = list(map(lambda x: ' '.join(x), df.index))
+    		df.index.name = 'term'
+    
+    		df['date'] = [target_date for i in df.index]
+    	
+    		buffer = io.StringIO()
+    		df_write = df.loc[:,['date','doc_count','tf-idf_corpus']]
+    		df_write['doc_count'] = df_write['doc_count'].astype(int)
+    		df_write.to_csv(buffer, index_label = 'term',  header = False)
+    		buffer.seek(0)
+    		start_time = time.time()
+    		try:
+    			cur.copy_from(buffer, 'leaderboard', sep = ",")
+    			conn.commit()
+    		except:
+    			print("Error: INSERT exception! Rolling back changes")
+    			conn.rollback()
+    		print(f'Insert Loop:\t {time.time() - start_time:.2f} sec\n')	
+    	cur.close()
+    try:		
+    #	print(df.sort_values(by='tf-idf_corpus', ascending=False)[0:50])
+    	df.sort_values(by='tf-idf_corpus', ascending=False).to_csv('./grams.csv')
+    except:
+    	None
+    	
+if __name__ == '__main__':
+    main()
