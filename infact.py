@@ -6,7 +6,6 @@ import sys
 from random import SystemRandom
 import subprocess
 import time
-import datetime
 import re
 import json
 
@@ -15,12 +14,12 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import psycopg2
 
-
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 
-def fix_crappy_json(LINE):
-    line = LINE
+def fix_crappy_json(line_):
+    """ reformats html-garbage into uzbl json"""
+    line = line_
     tmp = pd.DataFrame()
     if line.startswith('jobmap'):
         line = re.sub('^.*= ','',line)
@@ -30,29 +29,57 @@ def fix_crappy_json(LINE):
         line = re.sub(';$','',line)
         try:
             return tmp.append(json.loads(line),ignore_index=True)
-        except:
+        except Warning:
             print("CRAPPY JSON EXCEPTION")
-            print(LINE)
+            print(line_)
             print(line)
             return None
     else:
         return None
 
-def main():
-    DB_CONNECTION = "dbname=infact user=pgsql"
-    FF_OPTS = Options()
-    FF_PRO = webdriver.FirefoxProfile()
-    FF_PRO.set_preference("general.useragent.override",
+def insert_into_jobmap(cursor, dataframe, i):
+    """ seperated from main() for cleanliness """
+    cursor.execute("""INSERT INTO jobmap
+        (jk, efccid, srcid,
+        cmpid, srcname, cmp,
+        cmpesc, cmplnk, loc,
+        country, zip, city,
+        title, locid, rd)
+        VALUES
+        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        (dataframe.iloc[i]['jk'], dataframe.iloc[i]['efccid'], dataframe.iloc[i]['srcid'],
+        dataframe.iloc[i]['cmpid'], dataframe.iloc[i]['srcname'], dataframe.iloc[i]['cmp'],
+        dataframe.iloc[i]['cmpesc'], dataframe.iloc[i]['cmplnk'], dataframe.iloc[i]['loc'],
+        dataframe.iloc[i]['country'], dataframe.iloc[i]['zip'], dataframe.iloc[i]['city'],
+        dataframe.iloc[i]['title'], dataframe.iloc[i]['locid'], dataframe.iloc[i]['rd'],))
+
+
+def init():
+    """ initializes a dict of local variables"""
+    init_dict = {}
+    db_connection = 'dbname=infact user=pgsql'
+    ff_opts = Options()
+    ff_pro = webdriver.FirefoxProfile()
+    ff_pro.set_preference("general.useragent.override",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0")
     #firefox_opts.headless = True
-    driver= webdriver.Firefox(firefox_profile = FF_PRO, options=FF_OPTS)
-    INFACT = os.environ['INFACT']
-    script = ''
-    print('Go!')
-    conn = psycopg2.connect(DB_CONNECTION)
-    conn.set_client_encoding('UTF8')
-    cur = conn.cursor()
-    jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
+    init_dict['driver'] = webdriver.Firefox(firefox_profile = ff_pro, options=ff_opts)
+    init_dict['INFACT'] = os.environ['INFACT']
+    init_dict['script'] = ''
+    init_dict['conn'] = psycopg2.connect(db_connection)
+    init_dict['conn'].set_client_encoding('UTF8')
+    init_dict['cur'] = init_dict['conn'].cursor()
+    return init_dict 
+
+def gen_url(init_dict, city, decade):
+    """ creates a URL string to which selenium will navigate """
+    base_url = f'https://www.{init_dict["INFACT"]}.com/'
+    return base_url + f'jobs?q=data+scientist&l={city.rstrip()}&radius=50&sort=date&start={decade}'
+
+def main():
+    """ drives selenium and updates SQL table """
+    init_dict = init()
+    jobmap = pd.read_sql_query("SELECT jk FROM jobmap",init_dict['conn'])
     cities = open('cities.csv', 'r')
     for city in cities:
         jobcounter = 0
@@ -61,56 +88,43 @@ def main():
         for decade in range(0,200,10):
             if all(old_jobs):
                 continue
-            else:
-                old_jobs = []
-                SEARCH_URL= f'https://www.{INFACT}.com/jobs?q=data+scientist&l={city.rstrip()}&radius=50&sort=date&start={decade}'
-                delay = SystemRandom().randrange(3,12)
-                time.sleep(delay) 
-                jobmap = pd.read_sql_query("SELECT jk FROM jobmap",conn)
-                driver.get( SEARCH_URL )
-                response = driver.page_source
-                soup = BeautifulSoup(response, 'html.parser')
-                if 'captcha' in str(soup.find('title')).lower():
-                    print('Captcha!')
-                    subprocess.call(['xterm', '-e', './alarm.sh'])
-                    input("Press enter to continue...")
-                response = driver.page_source
-                soup = BeautifulSoup(response, 'html.parser')
-                for js in soup.find_all('script'):
-                    if 'jobmap' in str(js.contents):
-                        script = js.contents[0]
-                df_tmp = pd.DataFrame()
-                for line in script.splitlines():
-                    df_tmp = df_tmp.append(fix_crappy_json(line))
-                df_tmp.reset_index(inplace=True)
-                for i in range(len(df_tmp)):
-                    if df_tmp.iloc[i]['jk'] not in jobmap.jk.values:
-                        old_jobs.append(False)
-                        jobcounter = jobcounter + 1
-                        sys.stdout.write(f'\r{jobcounter}')
-                        sys.stdout.flush()
-                        cur.execute("""INSERT INTO jobmap
-                            (jk, efccid, srcid,
-                            cmpid, srcname, cmp,
-                            cmpesc, cmplnk, loc,
-                            country, zip, city,
-                            title, locid, rd)
-                            VALUES
-                            (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                            (df_tmp.iloc[i]['jk'], df_tmp.iloc[i]['efccid'], df_tmp.iloc[i]['srcid'],
-                            df_tmp.iloc[i]['cmpid'], df_tmp.iloc[i]['srcname'], df_tmp.iloc[i]['cmp'],
-                            df_tmp.iloc[i]['cmpesc'], df_tmp.iloc[i]['cmplnk'], df_tmp.iloc[i]['loc'],
-                            df_tmp.iloc[i]['country'], df_tmp.iloc[i]['zip'], df_tmp.iloc[i]['city'],
-                            df_tmp.iloc[i]['title'], df_tmp.iloc[i]['locid'], df_tmp.iloc[i]['rd'],))
-                        conn.commit()
-                    else:
-                        old_jobs.append(True)
-                        continue
+            old_jobs = []
+            search_url = gen_url(init_dict, city, decade)
+            delay = SystemRandom().randrange(3,12)
+            time.sleep(delay)
+            jobmap = pd.read_sql_query("SELECT jk FROM jobmap",init_dict['conn'])
+            init_dict['driver'].get( search_url )
+            response = init_dict['driver'].page_source
+            soup = BeautifulSoup(response, 'html.parser')
+            if 'captcha' in str(soup.find('title')).lower():
+                print('Captcha!')
+                subprocess.call(['xterm', '-e', './alarm.sh'])
+                input("Press enter to continue...")
+            response = init_dict['driver'].page_source
+            soup = BeautifulSoup(response, 'html.parser')
+            for javascript in soup.find_all('script'):
+                if 'jobmap' in str(javascript.contents):
+                    init_dict['script'] = javascript.contents[0]
+            df_tmp = pd.DataFrame()
+            for line in init_dict['script'].splitlines():
+                df_tmp = df_tmp.append(fix_crappy_json(line))
+            df_tmp.reset_index(inplace=True)
+            for i in range(len(df_tmp)):
+                if df_tmp.iloc[i]['jk'] not in jobmap.jk.values:
+                    old_jobs.append(False)
+                    jobcounter = jobcounter + 1
+                    sys.stdout.write(f'\r{jobcounter}')
+                    sys.stdout.flush()
+                    insert_into_jobmap(init_dict['cur'], df_tmp, i)
+                    init_dict['conn'].commit()
+                else:
+                    old_jobs.append(True)
+                    continue
     cities.close()
-    cur.close()
-    conn.commit()
-    conn.close()
-    driver.quit()
+    init_dict['cur'].close()
+    init_dict['conn'].commit()
+    init_dict['conn'].close()
+    init_dict['driver'].quit()
 
 if __name__ == '__main__':
     main()
