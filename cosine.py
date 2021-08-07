@@ -16,9 +16,30 @@ from nltk.corpus import stopwords, wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk.util import ngrams
 
-DB_CONNECTION = "dbname=infact user=pgsql"
-RESUME_FILE = "./sample.txt"
-CORPUS_PATH = "./jobs/"
+
+def cosine(veca, vecb):
+    """ calculates the cosine of the angle between two vectors """
+    def mag(vector):
+        return np.sqrt(sum([vector[k]*vector[k] for k in vector.keys()]))
+    numer = sum([(veca[k] * vecb[k]) for k in veca.keys()])
+    denom = mag(veca) * mag(vecb)
+    return numer/denom
+
+def divide_work(full_list_of_jk):
+    """ creates an array to facilitate mp.  the indicies indicate
+    how to split up the iterable.  
+    [index of first jk, quantity of jks to process] """
+    n_cpus = mp.cpu_count()*1
+    job_length = np.floor(len(full_list_of_jk)/n_cpus)
+    work_schedule = np.zeros((n_cpus,2), dtype = np.uint64)
+    for i in range(0, n_cpus):
+        distance = i*job_length
+        work_schedule[i,0] = distance
+        if i != (n_cpus - 1):
+            work_schedule[i,1] = job_length
+        else:
+            work_schedule[i,1] = len(full_list_of_jk) - distance
+    return work_schedule
 
 def get_freqdist(filename):
     """ processes a job-description and returns a freqdist with 1,2,& 3-grams"""
@@ -85,19 +106,6 @@ def get_freqdist(filename):
     return freqdist
 
 
-def divide_work(full_list_of_jk):
-    """ splits a list into n-lists: one for each cpu """
-    n_cpus = mp.cpu_count()*1
-    job_length = np.floor(len(full_list_of_jk)/n_cpus)
-    work_schedule = np.zeros((n_cpus,2), dtype = np.uint64)
-    for i in range(0, n_cpus):
-        distance = i*job_length
-        work_schedule[i,0] = distance
-        if i != (n_cpus - 1):
-            work_schedule[i,1] = job_length
-        else:
-            work_schedule[i,1] = len(full_list_of_jk) - distance
-    return work_schedule
 
 def make_vecs(fda, fdb):
     """ makes vectors from two freqdist with differing keys """
@@ -109,14 +117,6 @@ def make_vecs(fda, fdb):
         veca[k] = fda[k]
         vecb[k] = fdb[k]
     return veca, vecb
-
-def cosine(veca, vecb):
-    """ calculates the cosine of the angle between two vectors """
-    def mag(vector):
-        return np.sqrt(sum([vector[k]*vector[k] for k in vector.keys()]))
-    numer = sum([(veca[k] * vecb[k]) for k in veca.keys()])
-    denom = mag(veca) * mag(vecb)
-    return numer/denom
 
 def process_target(partial_list_of_jk, pipe):
     """ function to be sent to each cpu """
@@ -139,7 +139,7 @@ def write_to_mem(cos_dict):
     return buffer
 
 def main():
-    """ preprocesses files, calculates cosine, and then updates PGSQL table"""
+    """ preprocesses files -> calculates cosine -> updates PGSQL table"""
     with psycopg2.connect(DB_CONNECTION) as conn:
         cur = conn.cursor()
         cur.execute("SELECT jk from cosine")
@@ -173,4 +173,7 @@ def main():
         cur.close()
 
 if __name__ == '__main__':
+    DB_CONNECTION = "dbname=infact user=pgsql"
+    RESUME_FILE = "./sample.txt"
+    CORPUS_PATH = "./jobs/"
     main()
