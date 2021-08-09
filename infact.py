@@ -29,7 +29,7 @@ def fix_crappy_json(line_):
         line = re.sub(';$','',line)
         try:
             return tmp.append(json.loads(line),ignore_index=True)
-        except Warning:
+        except:
             print("CRAPPY JSON EXCEPTION")
             print(line_)
             print(line)
@@ -53,7 +53,6 @@ def insert_into_jobmap(cursor, dataframe, i):
         dataframe.iloc[i]['country'], dataframe.iloc[i]['zip'], dataframe.iloc[i]['city'],
         dataframe.iloc[i]['title'], dataframe.iloc[i]['locid'], dataframe.iloc[i]['rd'],))
 
-
 def init():
     """ initializes a dict of local variables"""
     init_dict = {}
@@ -76,30 +75,51 @@ def gen_url(init_dict, city, decade):
     base_url = f'https://www.{init_dict["INFACT"]}.com/'
     return base_url + f'jobs?q=data+scientist&l={city.rstrip()}&radius=50&sort=date&start={decade}'
 
+def read_record(file_d):
+    record = ''
+    char = ''
+    while True:
+        char = file_d.read(1)
+        if char == RS:
+            return record
+        if char == '':
+            return None
+        record = record + char
+
+def sound_alarm():
+    print('Captcha!')
+    subprocess.call(['xterm', '-e', './alarm.sh'])
+    input("Press enter to continue...")
+
 def main():
     """ drives selenium and updates SQL table """
     init_dict = init()
     jobmap = pd.read_sql_query("SELECT jk FROM jobmap",init_dict['conn'])
-    cities = open('cities.csv', 'r')
-    for city in cities:
+    cities = open('./cities.adt', 'r')
+    while True:
+        record = read_record(cities)
+        if record == None:
+            break
+        city = record.split(US)[0]
         jobcounter = 0
         print('\n'+city.rstrip())
         old_jobs = [False]
         for decade in range(0,200,10):
             if all(old_jobs):
-                continue
+                break
             old_jobs = []
             search_url = gen_url(init_dict, city, decade)
             delay = SystemRandom().randrange(3,12)
             time.sleep(delay)
             jobmap = pd.read_sql_query("SELECT jk FROM jobmap",init_dict['conn'])
-            init_dict['driver'].get( search_url )
+            try:
+                init_dict['driver'].get( search_url )
+            except selenium.common.exceptions.WebDriverException:
+                sound_alarm()
             response = init_dict['driver'].page_source
             soup = BeautifulSoup(response, 'html.parser')
             if 'captcha' in str(soup.find('title')).lower():
-                print('Captcha!')
-                subprocess.call(['xterm', '-e', './alarm.sh'])
-                input("Press enter to continue...")
+                sound_alarm()
             response = init_dict['driver'].page_source
             soup = BeautifulSoup(response, 'html.parser')
             for javascript in soup.find_all('script'):
@@ -127,4 +147,6 @@ def main():
     init_dict['driver'].quit()
 
 if __name__ == '__main__':
+    RS = chr(30)
+    US = chr(31)
     main()
